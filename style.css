@@ -7,10 +7,12 @@ canvas { display:block; background:#e0f7fa; width:100vw; height:100vh; }
   position: fixed;
   left: 8px;
   top: 8px;
-  background: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.95);
   padding: 8px;
   border-radius: 6px;
   font-family: Arial, sans-serif;
   font-size: 14px;
+  z-index: 10;
 }
 button { padding:4px 8px; }
+select { margin-left:6px; }
