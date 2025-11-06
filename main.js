@@ -7,15 +7,6 @@ const waveEl = document.getElementById('wave');
 const startBtn = document.getElementById('startWave');
 const mapSelect = document.getElementById('mapSelect');
 
-let W = 800, H = 600;
-function resize() {
-  W = innerWidth; H = innerHeight;
-  canvas.width = W; canvas.height = H;
-  computePixelPath();
-}
-addEventListener('resize', resize);
-resize();
-
 // Maps use normalized coordinates (0..1) so they scale with canvas size.
 const maps = [
   {
@@ -58,6 +49,20 @@ let currentMapIndex = 0;
 let path = []; // pixel coordinates computed from current map
 let pathWidth = 24;
 
+let W = 800, H = 600;
+function resize() {
+  W = innerWidth; H = innerHeight;
+  canvas.width = W; canvas.height = H;
+  computePixelPath();
+}
+addEventListener('resize', resize);
+resize();
+
+// compute pixel path from normalized waypoints
+function computePixelPath(){
+  const m = maps[currentMapIndex];
+  path = m.waypoints.map(p => ({ x: Math.round(p.x * W), y: Math.round(p.y * H) }));
+}
 function populateMapSelect(){
   maps.forEach((m, i) => {
     const opt = document.createElement('option');
@@ -83,14 +88,6 @@ function setMap(i){
   spawning = false;
 }
 
-// compute pixel path from normalized waypoints
-function computePixelPath(){
-  const m = maps[currentMapIndex];
-  path = m.waypoints.map(p => ({ x: Math.round(p.x * W), y: Math.round(p.y * H) }));
-}
-
-setMap(0); // initialize
-
 // Game state
 let cash = 100;
 let wave = 0;
@@ -99,6 +96,8 @@ let enemies = [];
 let towers = [];
 let projectiles = [];
 let spawning = false;
+
+setMap(0); // initialize
 
 // Utility
 function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
