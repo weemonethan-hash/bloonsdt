@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Tiny Tower Defense Prototype</title>
+  <title>Tiny Tower Defense — Maps & Placement</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -11,8 +11,11 @@
   <div id="ui">
     <div>Cash: <span id="cash">100</span></div>
     <div>Wave: <span id="wave">0</span></div>
+    <div>Map:
+      <select id="mapSelect"></select>
+    </div>
     <div><button id="startWave">Start Wave</button></div>
-    <div>Click to place tower (cost 50)</div>
+    <div>Click to place tower (cost 50). Towers cannot be placed on the path or on existing towers.</div>
   </div>
   <script src="main.js"></script>
 </body>
