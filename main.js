@@ -1,27 +1,95 @@
-// Tiny Tower Defense prototype (plain JS)
+// Tiny Tower Defense prototype with map choices and placement blocking
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const cashEl = document.getElementById('cash');
 const waveEl = document.getElementById('wave');
 const startBtn = document.getElementById('startWave');
+const mapSelect = document.getElementById('mapSelect');
 
 let W = 800, H = 600;
 function resize() {
   W = innerWidth; H = innerHeight;
   canvas.width = W; canvas.height = H;
+  computePixelPath();
 }
 addEventListener('resize', resize);
 resize();
 
-// Simple path: list of waypoints
-const path = [
-  {x: 50, y: H/2},
-  {x: W*0.25, y: H*0.25},
-  {x: W*0.5, y: H*0.5},
-  {x: W*0.75, y: H*0.4},
-  {x: W-50, y: H/2}
+// Maps use normalized coordinates (0..1) so they scale with canvas size.
+const maps = [
+  {
+    name: 'Meadow',
+    pathWidth: 24,
+    waypoints: [
+      {x: 0.05, y: 0.5},
+      {x: 0.25, y: 0.25},
+      {x: 0.5, y: 0.5},
+      {x: 0.75, y: 0.4},
+      {x: 0.95, y: 0.5}
+    ]
+  },
+  {
+    name: 'River Run',
+    pathWidth: 28,
+    waypoints: [
+      {x: 0.02, y: 0.3},
+      {x: 0.2, y: 0.35},
+      {x: 0.4, y: 0.65},
+      {x: 0.6, y: 0.6},
+      {x: 0.8, y: 0.35},
+      {x: 0.98, y: 0.4}
+    ]
+  },
+  {
+    name: 'Circuit',
+    pathWidth: 20,
+    waypoints: [
+      {x: 0.1, y: 0.6},
+      {x: 0.3, y: 0.2},
+      {x: 0.5, y: 0.6},
+      {x: 0.7, y: 0.2},
+      {x: 0.9, y: 0.6}
+    ]
+  }
 ];
+
+let currentMapIndex = 0;
+let path = []; // pixel coordinates computed from current map
+let pathWidth = 24;
+
+function populateMapSelect(){
+  maps.forEach((m, i) => {
+    const opt = document.createElement('option');
+    opt.value = i;
+    opt.textContent = m.name;
+    mapSelect.appendChild(opt);
+  });
+}
+populateMapSelect();
+
+mapSelect.addEventListener('change', (e) => {
+  setMap(parseInt(e.target.value, 10));
+});
+
+function setMap(i){
+  currentMapIndex = i;
+  pathWidth = maps[i].pathWidth;
+  computePixelPath();
+  // clear towers/enemies/projectiles
+  towers = [];
+  enemies = [];
+  projectiles = [];
+  spawning = false;
+}
+
+// compute pixel path from normalized waypoints
+function computePixelPath(){
+  const m = maps[currentMapIndex];
+  path = m.waypoints.map(p => ({ x: Math.round(p.x * W), y: Math.round(p.y * H) }));
+}
+
+setMap(0); // initialize
 
 // Game state
 let cash = 100;
@@ -34,6 +102,41 @@ let spawning = false;
 
 // Utility
 function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
+function distPoints(x1,y1,x2,y2){ return Math.hypot(x2-x1,y2-y1); }
+
+// Distance from point P to segment AB
+function pointSegmentDistance(px,py, ax,ay, bx,by){
+  const vx = bx - ax;
+  const vy = by - ay;
+  const wx = px - ax;
+  const wy = py - ay;
+  const vv = vx*vx + vy*vy;
+  if(vv === 0) return Math.hypot(px-ax, py-ay);
+  let t = (wx*vx + wy*vy) / vv;
+  t = Math.max(0, Math.min(1, t));
+  const projx = ax + t * vx;
+  const projy = ay + t * vy;
+  return Math.hypot(px - projx, py - projy);
+}
+
+// Check whether a point is inside the path area (can't place towers there)
+function isOnPath(x,y){
+  const radius = pathWidth / 2 + 12; // extra 12 = tower radius padding
+  for(let i=0;i<path.length-1;i++){
+    const a = path[i], b = path[i+1];
+    const d = pointSegmentDistance(x,y, a.x,a.y, b.x,b.y);
+    if(d <= radius) return true;
+  }
+  return false;
+}
+
+// Check overlapping other towers
+function overlapsOtherTower(x,y){
+  for(const t of towers){
+    if(distPoints(x,y,t.x,t.y) < 28) return true;
+  }
+  return false;
+}
 
 // Enemy (bloon-like)
 class Enemy {
@@ -42,6 +145,7 @@ class Enemy {
     this.maxHp = hp;
     this.speed = speed; // pixels per second
     this.wayIndex = 0;
+    // start at first waypoint
     this.pos = {x: path[0].x, y: path[0].y};
     this.reached = false;
   }
@@ -110,7 +214,7 @@ class Tower {
     ctx.rect(this.x-14,this.y-14,28,28);
     ctx.fill();
     // range (light)
-    ctx.fillStyle = 'rgba(21,101,192,0.08)';
+    ctx.fillStyle = 'rgba(21,101,192,0.06)';
     ctx.beginPath();
     ctx.arc(this.x,this.y,this.range,0,Math.PI*2);
     ctx.fill();
@@ -161,7 +265,10 @@ function startWave() {
   let count = 10 + wave * 2;
   let spawnInterval = 0.6;
   const spawnTimer = setInterval(() => {
-    enemies.push(new Enemy(1 + Math.floor(wave/3), 60 + wave*5));
+    // ensure path exists
+    if(path.length > 0){
+      enemies.push(new Enemy(1 + Math.floor(wave/3), 60 + wave*5));
+    }
     count--;
     if(count<=0){
       clearInterval(spawnTimer);
@@ -171,13 +278,31 @@ function startWave() {
 }
 
 // Input: place tower
+const TOWER_COST = 50;
+let mouse = {x:0, y:0, valid:false};
+
+canvas.addEventListener('mousemove', (e) => {
+  const r = canvas.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const y = e.clientY - r.top;
+  mouse.x = x; mouse.y = y;
+  // placement validity
+  const canAfford = cash >= TOWER_COST;
+  const onPath = isOnPath(x,y);
+  const overlap = overlapsOtherTower(x,y);
+  mouse.valid = canAfford && !onPath && !overlap;
+});
+
 canvas.addEventListener('click', (e) => {
   const r = canvas.getBoundingClientRect();
   const x = e.clientX - r.left;
   const y = e.clientY - r.top;
-  if(cash >= 50){
+  // validate again to be safe
+  if(cash >= TOWER_COST && !isOnPath(x,y) && !overlapsOtherTower(x,y)){
     towers.push(new Tower(x,y));
-    cash -= 50; updateUI();
+    cash -= TOWER_COST; updateUI();
+  } else {
+    // optionally could give feedback
   }
 });
 
@@ -205,7 +330,6 @@ function update(dt){
       enemies.splice(i,1);
       lives--;
       if(lives <= 0){
-        // simple game over: reset
         alert('Game Over');
         location.reload();
       }
@@ -220,12 +344,20 @@ function draw(){
   ctx.clearRect(0,0,W,H);
   // draw path
   ctx.strokeStyle = '#8d6e63';
-  ctx.lineWidth = 24;
+  ctx.lineWidth = pathWidth;
   ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(path[0].x, path[0].y);
   for(let i=1;i<path.length;i++) ctx.lineTo(path[i].x, path[i].y);
   ctx.stroke();
+  // dark center line for visual
+  ctx.strokeStyle = '#6d4c41';
+  ctx.lineWidth = Math.max(2, pathWidth/6);
+  ctx.beginPath();
+  ctx.moveTo(path[0].x, path[0].y);
+  for(let i=1;i<path.length;i++) ctx.lineTo(path[i].x, path[i].y);
+  ctx.stroke();
+
   // waypoints small
   ctx.fillStyle = '#3e2723';
   for(const p of path){ ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fill(); }
@@ -233,6 +365,41 @@ function draw(){
   for(const e of enemies) e.draw(ctx);
   for(const t of towers) t.draw(ctx);
   for(const p of projectiles) p.draw(ctx);
+
+  // ghost tower placement indicator
+  ctx.beginPath();
+  ctx.arc(mouse.x, mouse.y, 14, 0, Math.PI*2);
+  ctx.fillStyle = mouse.valid ? 'rgba(21,101,192,0.9)' : 'rgba(192,21,21,0.9)';
+  ctx.fill();
+  // ring to show path blocking radius (for debugging/feedback)
+  if(!mouse.valid){
+    // show reason by highlighting path region if on path
+    if(isOnPath(mouse.x, mouse.y)){
+      ctx.strokeStyle = 'rgba(255,0,0,0.6)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(mouse.x, mouse.y, pathWidth/2 + 12, 0, Math.PI*2);
+      ctx.stroke();
+    } else if (overlapsOtherTower(mouse.x, mouse.y)){
+      ctx.strokeStyle = 'rgba(255,165,0,0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(mouse.x, mouse.y, 28, 0, Math.PI*2);
+      ctx.stroke();
+    } else if (cash < TOWER_COST){
+      ctx.strokeStyle = 'rgba(128,128,128,0.8)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(mouse.x, mouse.y, 18, 0, Math.PI*2);
+      ctx.stroke();
+    }
+  } else {
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(mouse.x, mouse.y, 18, 0, Math.PI*2);
+    ctx.stroke();
+  }
 }
 
 updateUI();
