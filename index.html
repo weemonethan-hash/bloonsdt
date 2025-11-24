@@ -1,22 +1,406 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Tiny Tower Defense — Maps & Placement</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link rel="stylesheet" href="style.css" />
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>iPhone-style Home (Camera Background)</title>
+<style>
+  /* Reset */
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html,body { height: 100%; background: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial; color:#fff; }
+
+  /* Fullscreen camera/video background */
+  #cam-bg {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scale(1.02); /* small scale to avoid edge artifacts */
+    z-index: 0;
+    background-size: cover;
+    background-position: center;
+    filter: brightness(.88);
+  }
+
+  /* Top-level overlay to hold UI */
+  .ui {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    /* respect safe-area insets (notch) */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+
+  /* Status bar (time, cellular, wifi, battery) */
+  .status-bar {
+    height: 44px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding: 6px 12px;
+    color: white;
+    backdrop-filter: blur(6px) saturate(120%);
+    background: rgba(255,255,255,0.02);
+  }
+  .status-left { display:flex; gap:8px; align-items:center; font-size:13px; }
+  .status-right { display:flex; gap:8px; align-items:center; font-size:13px; }
+
+  /* Home area (icons grid) */
+  .home-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+    padding: 20px 18px;
+    margin-top: 8px;
+    justify-items: center;
+    align-content: start;
+    width: 100%;
+    flex: 1;
+  }
+
+  /* Icon style */
+  .app {
+    width: 72px;
+    height: 86px; /* includes label */
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .icon {
+    width:72px;
+    height:72px;
+    border-radius: 18px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:30px;
+    background: rgba(255,255,255,0.09);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.35), inset 0 1px rgba(255,255,255,0.02);
+    transition: transform .12s ease, box-shadow .12s ease;
+    backdrop-filter: blur(6px) saturate(120%);
+  }
+  .icon:active { transform: scale(.95); }
+
+  .label {
+    margin-top:6px;
+    text-align:center;
+    font-size:11px;
+    line-height:1;
+    color: #fff;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.6);
+    max-width: 72px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+
+  /* Dock */
+  .dock {
+    margin: 12px;
+    height: 80px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding: 10px 14px;
+    border-radius: 22px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+    backdrop-filter: blur(12px) saturate(120%);
+    box-shadow: 0 18px 30px rgba(0,0,0,0.45);
+    margin-bottom: calc(env(safe-area-inset-bottom) + 12px);
+  }
+  .dock-row {
+    width:100%;
+    display:flex;
+    justify-content:space-between;
+    max-width:520px;
+    gap: 18px;
+  }
+  .dock .icon { width:56px; height:56px; border-radius:14px; font-size:24px; }
+  .dock .label { display:none; }
+
+  /* Simple app open modal */
+  .app-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.5);
+  }
+  .app-window {
+    width: min(720px, 92%);
+    height: min(900px, 92%);
+    background: rgba(255,255,255,0.02);
+    border-radius: 18px;
+    backdrop-filter: blur(8px) saturate(120%);
+    box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+    color: white;
+    overflow: auto;
+    padding: 18px;
+  }
+  .close-btn {
+    position:absolute; top:16px; right:16px;
+    background: rgba(255,255,255,0.06); border-radius:10px; padding:6px 10px; cursor:pointer;
+  }
+
+  /* small-screen adjustments */
+  @media (max-width:420px) {
+    .icon { width:60px; height:60px; border-radius:14px; font-size:26px; }
+    .app { width:60px; height:74px; }
+    .home-grid { gap:14px; padding:18px; }
+    .dock { height:70px; padding:10px; border-radius:18px; }
+  }
+
+  /* subtle bounce-in for icons on load */
+  .app { opacity: 0; transform: translateY(8px) scale(.98); animation: appear .45s forwards; }
+  @keyframes appear { to { opacity:1; transform: translateY(0) scale(1); } }
+
+  /* small ripple when tapped */
+  .ripple {
+    position:absolute;
+    border-radius:50%;
+    transform:translate(-50%,-50%) scale(0.2);
+    pointer-events:none;
+    opacity:.6;
+    animation: ripple .7s ease-out forwards;
+    background: rgba(255,255,255,0.16);
+  }
+  @keyframes ripple { to { transform:translate(-50%,-50%) scale(4); opacity:0; } }
+
+  /* Accessibility: focus outlines */
+  .icon:focus { outline:2px solid rgba(255,255,255,0.18); outline-offset:2px; }
+</style>
 </head>
 <body>
-  <canvas id="game"></canvas>
-  <div id="ui">
-    <div>Cash: <span id="cash">100</span></div>
-    <div>Wave: <span id="wave">0</span></div>
-    <div>Map:
-      <select id="mapSelect"></select>
+  <!-- Video element used for camera background. If camera unavailable, a background image will be used instead. -->
+  <video id="cam-bg" autoplay playsinline muted></video>
+
+  <div class="ui" role="application" aria-label="iPhone style home">
+    <div class="status-bar" aria-hidden="true">
+      <div class="status-left">
+        <div id="time" style="font-weight:600; font-size:15px;"></div>
+      </div>
+      <div class="status-right">
+        <div>5G</div>
+        <div>🔊</div>
+        <div>🔋100%</div>
+      </div>
     </div>
-    <div><button id="startWave">Start Wave</button></div>
-    <div>Click to place tower (cost 50). Towers cannot be placed on the path or on existing towers.</div>
+
+    <!-- Home icons grid -->
+    <main class="home-grid" id="homeGrid" aria-label="Apps">
+      <!-- Apps inserted by JS; fallback set in markup for no-js users -->
+      <div class="app" data-app="Messages">
+        <div class="icon" role="button" tabindex="0" aria-label="Messages">💬</div>
+        <div class="label">Messages</div>
+      </div>
+      <div class="app" data-app="Calendar">
+        <div class="icon" role="button" tabindex="0" aria-label="Calendar">📅</div>
+        <div class="label">Calendar</div>
+      </div>
+      <div class="app" data-app="Photos">
+        <div class="icon" role="button" tabindex="0" aria-label="Photos">🖼️</div>
+        <div class="label">Photos</div>
+      </div>
+      <div class="app" data-app="Camera">
+        <div class="icon" role="button" tabindex="0" aria-label="Camera">📷</div>
+        <div class="label">Camera</div>
+      </div>
+
+      <div class="app" data-app="Maps">
+        <div class="icon" role="button" tabindex="0" aria-label="Maps">🗺️</div>
+        <div class="label">Maps</div>
+      </div>
+      <div class="app" data-app="Clock">
+        <div class="icon" role="button" tabindex="0" aria-label="Clock">⏰</div>
+        <div class="label">Clock</div>
+      </div>
+      <div class="app" data-app="Notes">
+        <div class="icon" role="button" tabindex="0" aria-label="Notes">📝</div>
+        <div class="label">Notes</div>
+      </div>
+      <div class="app" data-app="Settings">
+        <div class="icon" role="button" tabindex="0" aria-label="Settings">⚙️</div>
+        <div class="label">Settings</div>
+      </div>
+
+      <!-- fill rows to make layout symmetrical -->
+      <div class="app" data-app="App9">
+        <div class="icon" role="button" tabindex="0" aria-label="App">🎧</div>
+        <div class="label">Music</div>
+      </div>
+      <div class="app" data-app="App10">
+        <div class="icon" role="button" tabindex="0" aria-label="App">🧭</div>
+        <div class="label">Compass</div>
+      </div>
+      <div class="app" data-app="App11">
+        <div class="icon" role="button" tabindex="0" aria-label="App">📱</div>
+        <div class="label">Phone</div>
+      </div>
+      <div class="app" data-app="App12">
+        <div class="icon" role="button" tabindex="0" aria-label="App">📲</div>
+        <div class="label">App Store</div>
+      </div>
+    </main>
+
+    <!-- Dock -->
+    <div class="dock" aria-hidden="false">
+      <div class="dock-row">
+        <div class="icon" role="button" tabindex="0" aria-label="Phone">📞</div>
+        <div class="icon" role="button" tabindex="0" aria-label="Safari">🌐</div>
+        <div class="icon" role="button" tabindex="0" aria-label="Messages">💬</div>
+        <div class="icon" role="button" tabindex="0" aria-label="Music">🎵</div>
+      </div>
+    </div>
   </div>
-  <script src="main.js"></script>
+
+  <!-- Simple modal to simulate opening an app -->
+  <div class="app-modal" id="appModal" aria-hidden="true">
+    <div class="app-window" role="dialog" aria-modal="true" id="appWindow">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <strong id="appTitle">App</strong>
+        <button class="close-btn" id="closeApp" aria-label="Close app">✕</button>
+      </div>
+      <div id="appContent" style="line-height:1.5; font-size:15px;">
+        <!-- content inserted by JS -->
+      </div>
+    </div>
+  </div>
+
+<script>
+/*
+  Core behaviors:
+  - Attempts to start the rear camera (user-facing default is avoided; we try to get environment-facing when available)
+  - If camera denied/unavailable, use a fallback wallpaper image.
+  - Icons respond to taps/clicks: brief ripple and open a simple modal
+  - Status time updates every 10s
+*/
+
+/* --- Camera setup --- */
+const video = document.getElementById('cam-bg');
+async function startCamera() {
+  // prefer environment-facing camera when available
+  const constraints = {
+    audio: false,
+    video: {
+      facingMode: { ideal: "environment" }, // hints browser to choose rear camera on phones
+      width: { ideal: 1920 },
+      height: { ideal: 1080 }
+    }
+  };
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    video.srcObject = stream;
+    video.play().catch(() => {});
+  } catch (err) {
+    // fallback wallpaper if camera not available or permission denied
+    console.warn("Camera unavailable or permission denied:", err);
+    video.style.display = 'none';
+    document.body.style.backgroundImage = "url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"800\" height=\"1400\"><rect width=\"100%\" height=\"100%\" fill=\"%23000\"/><text x=\"50%\" y=\"50%\" fill=\"%23ccc\" font-size=\"28\" font-family=\"Arial\" text-anchor=\"middle\">Camera unavailable</text></svg>')";
+    document.body.style.backgroundSize = 'cover';
+  }
+}
+/* Start immediately */
+startCamera();
+
+/* --- Time updater for status bar --- */
+function updateTime() {
+  const el = document.getElementById('time');
+  const now = new Date();
+  // format like iPhone: e.g., 9:41
+  const h = now.getHours();
+  const m = now.getMinutes();
+  const hh = ((h % 12) === 0) ? 12 : (h % 12);
+  const minutes = m.toString().padStart(2, '0');
+  el.textContent = hh + ":" + minutes;
+}
+updateTime();
+setInterval(updateTime, 10000);
+
+/* --- App interactions (ripple + open modal) --- */
+const homeGrid = document.getElementById('homeGrid');
+const modal = document.getElementById('appModal');
+const appWindow = document.getElementById('appWindow');
+const appTitle = document.getElementById('appTitle');
+const appContent = document.getElementById('appContent');
+const closeAppBtn = document.getElementById('closeApp');
+
+function createRipple(e, target) {
+  const rect = target.getBoundingClientRect();
+  const ripple = document.createElement('div');
+  ripple.className = 'ripple';
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  ripple.style.left = x + 'px';
+  ripple.style.top = y + 'px';
+  ripple.style.width = ripple.style.height = Math.max(rect.width, rect.height) + 'px';
+  target.appendChild(ripple);
+  ripple.addEventListener('animationend', () => ripple.remove());
+}
+
+function openApp(name) {
+  appTitle.textContent = name;
+  appContent.innerHTML = `<p style="opacity:.95">This is a demo view for <strong>${name}</strong>. Replace with real content.</p>
+  <p style="opacity:.85; margin-top:8px">Camera background continues to run behind the UI.</p>`;
+  modal.style.display = 'flex';
+  modal.setAttribute('aria-hidden','false');
+  setTimeout(() => appWindow.focus(), 50);
+}
+
+homeGrid.addEventListener('pointerdown', (ev) => {
+  const appElem = ev.target.closest('.app, .dock .icon');
+  if (!appElem) return;
+  // create ripple on the icon (find .icon element)
+  const icon = ev.target.closest('.icon') || appElem.querySelector('.icon');
+  if (icon) createRipple(ev, icon);
+});
+
+homeGrid.addEventListener('click', (ev) => {
+  const app = ev.target.closest('.app');
+  if (!app) return;
+  const name = app.dataset.app || app.querySelector('.label')?.textContent || 'App';
+  openApp(name);
+});
+
+/* dock icons open too */
+document.querySelectorAll('.dock .icon').forEach(ic => {
+  ic.addEventListener('click', (ev) => {
+    const label = ic.getAttribute('aria-label') || 'App';
+    openApp(label);
+  });
+});
+
+/* keyboard accessibility */
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
+
+/* close modal */
+function closeModal() {
+  modal.style.display = 'none';
+  modal.setAttribute('aria-hidden','true');
+}
+closeAppBtn.addEventListener('click', closeModal);
+modal.addEventListener('pointerdown', (ev) => {
+  if (ev.target === modal) closeModal();
+});
+
+/* add subtle staggered animation delays for icons */
+document.querySelectorAll('.app').forEach((el, i) => {
+  el.style.animationDelay = (i * 0.03) + 's';
+});
+</script>
 </body>
 </html>
